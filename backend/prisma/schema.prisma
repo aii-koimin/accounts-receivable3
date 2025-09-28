@@ -1,0 +1,229 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("USER") // ADMIN, MANAGER, USER
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  assignedDiscrepancies PaymentDiscrepancy[]
+  createdEmailTemplates EmailTemplate[]
+  activityLogs         ActivityLog[]
+  notifications        Notification[]
+  tasks                Task[]
+
+  @@map("users")
+}
+
+model Customer {
+  id            String          @id @default(cuid())
+  customerCode  String          @unique
+  name          String
+  email         String
+  phone         String?
+  address       String?
+  contactPerson String?
+  paymentTerms  Int             @default(30) // Payment term in days
+  creditLimit   Float?
+  riskLevel     String          @default("LOW") // LOW, MEDIUM, HIGH, CRITICAL
+  isActive      Boolean         @default(true)
+  notes         String?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  paymentDiscrepancies PaymentDiscrepancy[]
+  emailLogs           EmailLog[]
+  riskAssessments     RiskAssessment[]
+
+  @@map("customers")
+}
+
+model PaymentDiscrepancy {
+  id                String              @id @default(cuid())
+  customerId        String
+  type              String              // UNPAID, OVERPAID, PARTIAL, MULTIPLE_INVOICES
+  status            String              @default("DETECTED") // DETECTED, PROCESSING, EMAIL_SENT, CUSTOMER_CONTACTED, AGREED, RESOLVED
+  priority          String              @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  interventionLevel String              @default("AI_ASSISTED") // AI_AUTONOMOUS, AI_ASSISTED, HUMAN_REQUIRED
+  expectedAmount    Float
+  actualAmount      Float
+  differenceAmount  Float // expectedAmount - actualAmount
+  detectedAt        DateTime           @default(now())
+  dueDate           DateTime?
+  overdueDays       Int?
+  assignedUserId    String?
+  assignedAt        DateTime?
+  notes             String?
+  tags              String?            // JSON string array of tags
+  aiAnalysis        String?            // JSON string of AI analysis results
+  importKey         String?            // For Excel import deduplication
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  // Relations
+  customer      Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedUser  User?      @relation(fields: [assignedUserId], references: [id])
+  emailLogs     EmailLog[]
+  tasks         Task[]
+
+  @@map("payment_discrepancies")
+}
+
+model EmailLog {
+  id                   String           @id @default(cuid())
+  discrepancyId        String?
+  customerId           String?
+  sender               String
+  recipient            String
+  subject              String
+  body                 String
+  templateId           String?
+  status               String           @default("PENDING") // PENDING, SENT, FAILED, DELIVERED, BOUNCED
+  sentAt               DateTime?
+  deliveredAt          DateTime?
+  errorMessage         String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  // Relations
+  discrepancy   PaymentDiscrepancy? @relation(fields: [discrepancyId], references: [id], onDelete: Cascade)
+  customer      Customer?           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  template      EmailTemplate?      @relation(fields: [templateId], references: [id])
+
+  @@map("email_logs")
+}
+
+model EmailTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  subject     String
+  body        String   // HTML content with variable placeholders
+  type        String   // UNPAID_REMINDER, OVERPAID_INQUIRY, PAYMENT_CONFIRMATION, PARTIAL_PAYMENT_FOLLOW_UP
+  stage       String   // FIRST_REMINDER, SECOND_REMINDER, FINAL_REMINDER, INQUIRY, CONFIRMATION
+  variables   String   // JSON string array of available variables
+  isActive    Boolean  @default(true)
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  createdBy User       @relation(fields: [createdById], references: [id])
+  emailLogs EmailLog[]
+
+  @@map("email_templates")
+}
+
+model SystemConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  category    String
+  isActive    Boolean  @default(true)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_configs")
+}
+
+model ActivityLog {
+  id           String   @id @default(cuid())
+  userId       String
+  action       String
+  entityType   String
+  entityId     String?
+  oldValues    String?  // JSON string
+  newValues    String?  // JSON string
+  ipAddress    String?
+  userAgent    String?
+  executedAt   DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("activity_logs")
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      String           // INVOICE_OVERDUE, PAYMENT_RECEIVED, RISK_ALERT, TASK_ASSIGNED, SYSTEM_UPDATE
+  title     String
+  message   String
+  data      String?          // JSON string
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model Task {
+  id             String     @id @default(cuid())
+  type           String
+  title          String
+  description    String?
+  priority       String     @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status         String     @default("PENDING") // PENDING, PROCESSING, COMPLETED, FAILED, CANCELLED
+  assignedUserId String?
+  dueDate        DateTime?
+  completedAt    DateTime?
+  result         String?    // JSON string
+  metadata       String?    // JSON string
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  // Relations
+  assignedUser  User?               @relation(fields: [assignedUserId], references: [id])
+  discrepancyId String?
+  discrepancy   PaymentDiscrepancy? @relation(fields: [discrepancyId], references: [id])
+
+  @@map("tasks")
+}
+
+model RiskAssessment {
+  id            String      @id @default(cuid())
+  customerId    String
+  riskScore     Float       // 0.0 - 1.0
+  riskLevel     String      // LOW, MEDIUM, HIGH, CRITICAL
+  factors       String      // JSON string of assessment factors
+  comment       String?
+  validUntil    DateTime
+  createdAt     DateTime    @default(now())
+
+  // Relations
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@map("risk_assessments")
+}
+
+model AiPrediction {
+  id           String   @id @default(cuid())
+  entityId     String   // Reference to invoice, customer, etc.
+  type         String   // PAYMENT_DATE, RISK_SCORE, COLLECTION_SUCCESS_RATE
+  prediction   String   // JSON string of prediction content
+  confidence   Float    // 0.0 - 1.0
+  validUntil   DateTime
+  createdAt    DateTime @default(now())
+
+  @@map("ai_predictions")
+}
